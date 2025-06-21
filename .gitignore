@@ -1,0 +1,14 @@
+# Golang
+bin/
+*.exe
+*.out
+*.test
+*.log
+
+# Env files
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
