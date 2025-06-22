@@ -7,9 +7,11 @@ import (
 	"math"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -26,6 +28,57 @@ const erc20ABI = `[{
 	"name": "Transfer",
 	"type": "event"
 }]`
+
+type tokenInfo struct {
+	Symbol   string
+	Name     string
+	Decimals int64
+}
+
+var tokenCache = make(map[common.Address]tokenInfo)
+var tokenMu sync.Mutex
+
+func getTokenInfo(address common.Address, client *ethclient.Client) tokenInfo {
+	tokenMu.Lock()
+	defer tokenMu.Unlock()
+
+	if info, ok := tokenCache[address]; ok {
+		return info
+	}
+
+	erc20ABI := `[{"constant":true,"inputs":[],"name":"name","outputs":[{"name":"","type":"string"}],"type":"function"},
+	              {"constant":true,"inputs":[],"name":"symbol","outputs":[{"name":"","type":"string"}],"type":"function"},
+	              {"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"type":"function"}]`
+
+	parsedABI, err := abi.JSON(strings.NewReader(erc20ABI))
+	if err != nil {
+		log.Println("ABI parse error:", err)
+		return tokenInfo{}
+	}
+
+	contract := bind.NewBoundContract(address, parsedABI, client, nil, nil)
+
+	var symbol string
+	symbolOut := []any{&symbol}
+	_ = contract.Call(nil, &symbolOut, "symbol")
+
+	var name string
+	nameOut := []any{&name}
+	_ = contract.Call(nil, &nameOut, "name")
+
+	var decimals uint8
+	decimalsOut := []any{&decimals}
+	_ = contract.Call(nil, &decimalsOut, "decimals")
+
+	info := tokenInfo{
+		Symbol:   symbol,
+		Name:     name,
+		Decimals: int64(decimals),
+	}
+
+	tokenCache[address] = info
+	return info
+}
 
 func ScanLatestBlock(client *ethclient.Client) {
 	ctx := context.Background()
@@ -84,7 +137,7 @@ func ScanLatestBlock(client *ethclient.Client) {
 			continue
 		}
 
-		parseTransferEvents(receipt)
+		parseTransferEvents(receipt, client)
 	}
 
 	fmt.Printf("\nTotal ETH transferred in block: %.6f ETH\n", weiToEth(totalValue))
@@ -97,7 +150,7 @@ func weiToEth(wei *big.Int) float64 {
 	return val
 }
 
-func parseTransferEvents(receipt *types.Receipt) {
+func parseTransferEvents(receipt *types.Receipt, client *ethclient.Client) {
 	parsedABI, err := abi.JSON(strings.NewReader(erc20ABI))
 	if err != nil {
 		log.Println("Failed to parse ABI:", err)
@@ -123,7 +176,12 @@ func parseTransferEvents(receipt *types.Receipt) {
 			continue
 		}
 
+		token := getTokenInfo(vLog.Address, client)
+
 		val := decoded["value"].(*big.Int)
-		fmt.Printf("Token Transfer: %s → %s | %.6f\n", from.Hex(), to.Hex(), weiToEth(val))
+		floatVal := new(big.Float).Quo(new(big.Float).SetInt(val), big.NewFloat(math.Pow10(int(token.Decimals))))
+
+		fmt.Printf("Token Transfer: %s → %s | %.6f %s (%s)\n",
+			from.Hex(), to.Hex(), floatVal, token.Symbol, token.Name)
 	}
 }
