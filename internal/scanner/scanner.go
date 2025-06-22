@@ -35,7 +35,7 @@ func ScanLatestBlock(client *ethclient.Client) {
 		log.Fatalf("Failed to get chain ID: %v", err)
 	}
 
-	signer := types.NewEIP155Signer(chainID)
+	signer := types.LatestSignerForChainID(chainID)
 
 	totalValue := big.NewInt(0)
 
