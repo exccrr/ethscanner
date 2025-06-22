@@ -3,13 +3,15 @@
 A lightweight CLI tool written in Go that connects to the Ethereum blockchain and retrieves the latest block information using Infura RPC.
 
 It fetches:
-- latest block number
-- block hash
-- from and to
-- timestamp
-- total value
-- number of transactions
-- first 5 transaction hashes
+- Latest block number
+- Block hash
+- Block timestamp (converted to human-readable time)
+- Sender and receiver (From / To) for first 5 transactions
+- ETH value transferred in each transaction
+- Total ETH transferred in the block
+- First 5 transaction hashes
+- ERC-20 Transfer events from logs (token transfers)
+- Number of transactions in the block
 
 ---
 
@@ -27,6 +29,13 @@ It fetches:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/ethscanner.git
+git clone https://github.com/exccrr/ethscanner.git
 cd ethscanner
+```
+
+### 2. Create .env file with your INFURA_URL
+
+### 3. Run main
+```bash
 go run cmd/main.go
+```

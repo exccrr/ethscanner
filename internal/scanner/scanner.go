@@ -6,11 +6,26 @@ import (
 	"log"
 	"math"
 	"math/big"
+	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
+
+const erc20ABI = `[{
+	"anonymous": false,
+	"inputs": [
+		{"indexed": true, "name": "from", "type": "address"},
+		{"indexed": true, "name": "to", "type": "address"},
+		{"indexed": false, "name": "value", "type": "uint256"}
+	],
+	"name": "Transfer",
+	"type": "event"
+}]`
 
 func ScanLatestBlock(client *ethclient.Client) {
 	ctx := context.Background()
@@ -62,6 +77,14 @@ func ScanLatestBlock(client *ethclient.Client) {
 		val := tx.Value()
 		totalValue.Add(totalValue, val)
 		fmt.Printf("Value: %.6f ETH\n", weiToEth(val))
+
+		receipt, err := client.TransactionReceipt(ctx, tx.Hash())
+		if err != nil {
+			log.Printf("Cannot get receipt for tx %s: %v\n", tx.Hash().Hex(), err)
+			continue
+		}
+
+		parseTransferEvents(receipt)
 	}
 
 	fmt.Printf("\nTotal ETH transferred in block: %.6f ETH\n", weiToEth(totalValue))
@@ -72,4 +95,35 @@ func weiToEth(wei *big.Int) float64 {
 	ethValue := new(big.Float).Quo(f, big.NewFloat(math.Pow10(18)))
 	val, _ := ethValue.Float64()
 	return val
+}
+
+func parseTransferEvents(receipt *types.Receipt) {
+	parsedABI, err := abi.JSON(strings.NewReader(erc20ABI))
+	if err != nil {
+		log.Println("Failed to parse ABI:", err)
+		return
+	}
+
+	transferSig := []byte("Transfer(address,address,uint256)")
+	transferHash := crypto.Keccak256Hash(transferSig)
+
+	for _, vLog := range receipt.Logs {
+		if len(vLog.Topics) == 0 || vLog.Topics[0] != transferHash {
+			continue
+		}
+
+		from := common.HexToAddress(vLog.Topics[1].Hex())
+		to := common.HexToAddress(vLog.Topics[2].Hex())
+
+		decoded := make(map[string]interface{})
+		err := parsedABI.UnpackIntoMap(decoded, "Transfer", vLog.Data)
+
+		if err != nil {
+			log.Println("Failed to decode event data:", err)
+			continue
+		}
+
+		val := decoded["value"].(*big.Int)
+		fmt.Printf("Token Transfer: %s → %s | %.6f\n", from.Hex(), to.Hex(), weiToEth(val))
+	}
 }
