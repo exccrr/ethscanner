@@ -34,7 +34,9 @@ cd ethscanner
 ```
 
 ### 2. Create .env file with your INFURA_URL
-
+```
+INFURA_URL=https://mainnet.infura.io/v3/YOUR_KEY
+```
 ### 3. Run main
 ```bash
 go run cmd/main.go
